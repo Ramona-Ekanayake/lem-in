@@ -133,168 +133,41 @@ func readInput(filename string) (*Graph, string, string, int) {
 	return graph, graph.StartRoom, graph.EndRoom, graph.AntCount
 }
 
-// findShortestPaths finds multiple shortest paths using BFS.
-func findShortestPaths(graph *Graph, start, end string) [][]string {
-	var paths [][]string
-	queue := [][]string{{start}}
-	visited := make(map[string]bool)
-	visited[start] = true
+// findAllPaths uses DFS to find all paths from the start room to the end room.
+func findAllPaths(graph *Graph, currentRoom string, visited map[string]bool, path []string, allPaths *[][]string) {
+	visited[currentRoom] = true
+	path = append(path, currentRoom)
 
-	for len(queue) > 0 {
-		levelSize := len(queue)
-		newVisited := make(map[string]bool)
-
-		for i := 0; i < levelSize; i++ {
-			path := queue[0]
-			queue = queue[1:]
-			last := path[len(path)-1]
-
-			if last == end {
-				paths = append(paths, path)
-				continue
-			}
-
-			for _, neighbor := range graph.Connections[last] {
-				if !visited[neighbor] && !newVisited[neighbor] {
-					newPath := append([]string{}, path...)
-					newPath = append(newPath, neighbor)
-					queue = append(queue, newPath)
-					newVisited[neighbor] = true
-				}
-			}
-		}
-
-		for node := range newVisited {
-			visited[node] = true
-		}
-	}
-
-	return paths
-}
-
-// findMultiplePaths finds additional shortest paths while minimizing overlap.
-func findMultiplePaths(graph *Graph, paths [][]string, start, end string) [][]string {
-	// Use a set to track rooms that are already part of a path
-	usedRooms := make(map[string]bool)
-	for _, path := range paths {
-		for _, room := range path {
-			usedRooms[room] = true
-		}
-	}
-
-	// Find additional paths that minimize overlap with existing paths
-	var additionalPaths [][]string
-	queue := [][]string{{start}}
-	visited := map[string]bool{start: true}
-
-	for len(queue) > 0 {
-		path := queue[0]
-		queue = queue[1:]
-		last := path[len(path)-1]
-
-		if last == end {
-			// Check if the path has minimal overlap with existing paths
-			overlap := false
-			for _, room := range path {
-				if usedRooms[room] {
-					overlap = true
-					break
-				}
-			}
-			if !overlap {
-				additionalPaths = append(additionalPaths, path)
-				for _, room := range path {
-					usedRooms[room] = true
-				}
-			}
-		}
-
-		for _, neighbor := range graph.Connections[last] {
+	if currentRoom == graph.EndRoom {
+		// Make a copy of the path and add it to allPaths
+		pathCopy := make([]string, len(path))
+		copy(pathCopy, path)
+		*allPaths = append(*allPaths, pathCopy)
+	} else {
+		for _, neighbor := range graph.Connections[currentRoom] {
 			if !visited[neighbor] {
-				visited[neighbor] = true
-				newPath := append([]string{}, path...)
-				newPath = append(newPath, neighbor)
-				queue = append(queue, newPath)
+				findAllPaths(graph, neighbor, visited, path, allPaths)
 			}
 		}
 	}
 
-	return append(paths, additionalPaths...)
+	// Backtrack
+	path = path[:len(path)-1]
+	visited[currentRoom] = false
 }
 
-// edmondsKarp applies the max-flow algorithm to model ants as flow.
-func edmondsKarp(graph *Graph, start, end string) int {
-	// Initialize residual capacities
-	residual := make(map[string]map[string]int)
-	for room := range graph.Rooms {
-		residual[room] = make(map[string]int)
-		for _, neighbor := range graph.Connections[room] {
-			residual[room][neighbor] = 1 // Capacity of 1 for each connection
-		}
-	}
+// findShortestPaths finds the shortest paths using BFS.
+func findShortestPaths(graph *Graph, start, end string) [][]string {
+	var allPaths [][]string
+	visited := make(map[string]bool)
+	findAllPaths(graph, start, visited, []string{}, &allPaths)
 
-	// Helper function to perform BFS and find an augmenting path
-	bfs := func() []string {
-		queue := [][]string{{start}}
-		visited := map[string]bool{start: true}
-		parent := make(map[string]string)
+	// Sort paths by length (shortest first)
+	sort.Slice(allPaths, func(i, j int) bool {
+		return len(allPaths[i]) < len(allPaths[j])
+	})
 
-		for len(queue) > 0 {
-			path := queue[0]
-			queue = queue[1:]
-			last := path[len(path)-1]
-
-			if last == end {
-				// Reconstruct the path
-				var augmentingPath []string
-				for node := end; node != start; node = parent[node] {
-					augmentingPath = append([]string{node}, augmentingPath...)
-				}
-				augmentingPath = append([]string{start}, augmentingPath...)
-				return augmentingPath
-			}
-
-			for neighbor, capacity := range residual[last] {
-				if !visited[neighbor] && capacity > 0 {
-					visited[neighbor] = true
-					parent[neighbor] = last
-					newPath := append([]string{}, path...)
-					newPath = append(newPath, neighbor)
-					queue = append(queue, newPath)
-				}
-			}
-		}
-		return nil
-	}
-
-	// Main loop of the Edmonds-Karp algorithm
-	maxFlow := 0
-	for {
-		augmentingPath := bfs()
-		if augmentingPath == nil {
-			break
-		}
-
-		// Find the bottleneck capacity
-		bottleneck := 1
-		for i := 0; i < len(augmentingPath)-1; i++ {
-			u, v := augmentingPath[i], augmentingPath[i+1]
-			if residual[u][v] < bottleneck {
-				bottleneck = residual[u][v]
-			}
-		}
-
-		// Update residual capacities
-		for i := 0; i < len(augmentingPath)-1; i++ {
-			u, v := augmentingPath[i], augmentingPath[i+1]
-			residual[u][v] -= bottleneck
-			residual[v][u] += bottleneck
-		}
-
-		maxFlow += bottleneck
-	}
-
-	return maxFlow
+	return allPaths
 }
 
 // distributeAnts assigns ants optimally across paths.
@@ -308,17 +181,8 @@ func distributeAnts(paths [][]string, ants int) map[int][]string {
 	})
 
 	// Distribute ants based on path lengths
-	antCount := make([]int, len(paths))
 	for i := 0; i < ants; i++ {
-		// Assign ant to the least loaded path
-		minIndex := 0
-		for j := 1; j < len(paths); j++ {
-			if len(paths[j])+antCount[j] < len(paths[minIndex])+antCount[minIndex] {
-				minIndex = j
-			}
-		}
-		antCount[minIndex]++
-		assignment[antIndex] = paths[minIndex]
+		assignment[antIndex] = paths[i%len(paths)]
 		antIndex++
 	}
 
@@ -326,24 +190,59 @@ func distributeAnts(paths [][]string, ants int) map[int][]string {
 }
 
 // printMovements prints the movements of ants.
-func printMovements(assignment map[int][]string) {
-	for step := 0; ; step++ {
-		var moveStrings []string
-		finished := true
+func printMovements(assignment map[int][]string, paths [][]string) {
+	antPositions := make(map[int]int) // Stores ant index in path
+	roomOccupancy := make(map[string]int) // Stores the number of ants in each room
+	step := 1
 
-		for antID, path := range assignment {
-			if step < len(path)-1 {
-				moveStrings = append(moveStrings, fmt.Sprintf("L%d-%s", antID, path[step+1]))
-				finished = false
+	for {
+		var moveStrings []string
+		finishedAnts := 0
+
+		for antID := 1; antID <= len(assignment); antID++ {
+			currentPosition := antPositions[antID]
+			if currentPosition < len(assignment[antID])-1 {
+				nextPosition := currentPosition + 1
+				nextRoom := assignment[antID][nextPosition]
+
+				// Ensure only one ant occupies a room at a time
+				if roomOccupancy[nextRoom] == 0 || nextRoom == paths[0][len(paths[0])-1] {
+					// Move the ant to the next room
+					antPositions[antID] = nextPosition
+					moveStrings = append(moveStrings, fmt.Sprintf("L%d-%s", antID, nextRoom))
+					roomOccupancy[nextRoom]++
+					if currentPosition > 0 {
+						roomOccupancy[assignment[antID][currentPosition]]--
+					}
+				}
+			} else {
+				finishedAnts++
 			}
 		}
 
-		if finished {
-			break
+		if len(moveStrings) > 0 {
+			fmt.Println(strings.Join(moveStrings, " "))
 		}
 
-		fmt.Println(strings.Join(moveStrings, " "))
+		if finishedAnts == len(assignment) {
+			fmt.Println("All ants have reached the end.")
+			break
+		}
+		step++
 	}
+}
+
+// debugPaths prints all the paths found.
+func debugPaths(paths [][]string) {
+	fmt.Println("All paths found:")
+	for i, path := range paths {
+		fmt.Printf("Path %d: %s\n", i+1, strings.Join(path, " -> "))
+	}
+}
+
+// debugAntCount prints the number of ants.
+func debugAntCount(antCount int) {
+	fmt.Printf("Number of ants: %d\n", antCount)
 }
 
 // main is the entry point of the program.
@@ -355,6 +254,9 @@ func main() {
 
 	graph, start, end, ants := readInput(os.Args[1])
 
+	// Debug: Print the number of ants
+	debugAntCount(ants)
+
 	// Step 2: Find Shortest Paths (BFS)
 	paths := findShortestPaths(graph, start, end)
 	if len(paths) == 0 {
@@ -362,15 +264,18 @@ func main() {
 		return
 	}
 
-	// Step 3: Find Additional Shortest Paths Minimizing Overlap
-	paths = findMultiplePaths(graph, paths, start, end)
-
-	// Step 4: Apply Edmonds-Karp for Maximum Flow (Ant Flow Simulation)
-	flow := edmondsKarp(graph, start, end)
+	// Debug: Print all paths found
+	debugPaths(paths)
 
 	// Step 5: Distribute Ants Optimally Across Paths
 	assignment := distributeAnts(paths, ants)
 
 	// Step 6: Print Ant Movements
-	printMovements(assignment)
+	printMovements(assignment, paths)
+
+	// Ensure the program exits properly
+	fmt.Println("Program completed.")
+	os.Exit(0)
 }
+
+
