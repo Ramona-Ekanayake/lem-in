@@ -35,10 +35,7 @@ func NewGraph() *Graph {
 }
 
 // AddRoom adds a room to the graph.
-func (g *Graph) AddRoom(name string, x, y int, isStart, isEnd bool) error {
-	if _, exists := g.Rooms[name]; exists {
-		return fmt.Errorf("duplicate room: %s", name)
-	}
+func (g *Graph) AddRoom(name string, x, y int, isStart, isEnd bool) {
 	g.Rooms[name] = Room{Name: name, X: x, Y: y, IsStart: isStart, IsEnd: isEnd}
 	if isStart {
 		g.StartRoom = name
@@ -46,7 +43,6 @@ func (g *Graph) AddRoom(name string, x, y int, isStart, isEnd bool) error {
 	if isEnd {
 		g.EndRoom = name
 	}
-	return nil
 }
 
 // AddConnection adds a connection (tunnel) between two rooms.
@@ -60,19 +56,16 @@ func (g *Graph) AddConnection(roomA, roomB string) error {
 	g.Connections[roomA] = append(g.Connections[roomA], roomB)
 	g.Connections[roomB] = append(g.Connections[roomB], roomA)
 	return nil
-
 }
 
 // readInput parses the input file and constructs the graph.
-func readInput(exampleFile string) (*Graph, string, string, int) {
-	file, err := os.Open(exampleFile)
+func readInput(filename string) (*Graph, string, string, int) {
+	file, err := os.Open(filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-		os.Exit(1) // Exits immediately, skipping the deferred function
+		fmt.Println("ERROR:", err)
+		os.Exit(0)
 	}
 	defer file.Close()
-	fmt.Println("File opened successfully!")
-	fmt.Println()
 
 	graph := NewGraph()
 	scanner := bufio.NewScanner(file)
@@ -92,9 +85,9 @@ func readInput(exampleFile string) (*Graph, string, string, int) {
 
 		if lineNumber == 0 {
 			graph.AntCount, err = strconv.Atoi(line)
-			if err != nil || graph.AntCount <= 0 {
-				fmt.Println("ERROR: invalid data format, number of ants must be a positive integer")
-				os.Exit(1)
+			if err != nil || graph.AntCount == 0 {
+				fmt.Println("ERROR: invalid number of ants")
+				os.Exit(0)
 			}
 			lineNumber++
 			continue
@@ -104,7 +97,7 @@ func readInput(exampleFile string) (*Graph, string, string, int) {
 			parts := strings.Split(line, "-")
 			if len(parts) != 2 {
 				fmt.Println("ERROR: invalid connection:", line)
-				os.Exit(1)
+				os.Exit(0)
 			}
 			if parts[0] == parts[1] {
 				fmt.Println("ERROR: self referencing room:", line)
@@ -113,8 +106,8 @@ func readInput(exampleFile string) (*Graph, string, string, int) {
 			for key, vals := range graph.Connections {
 				for _, val := range vals {
 					if (key == parts[0] && val == parts[1]) || (key == parts[1] && val == parts[0]) {
-						fmt.Println("ERROR: invalid data format, identical connection already exists:", line)
-						os.Exit(1)
+						fmt.Println("ERROR: identical connection already exists:", line)
+						os.Exit(0)
 					}
 				}
 			}
@@ -123,23 +116,20 @@ func readInput(exampleFile string) (*Graph, string, string, int) {
 			fields := strings.Fields(line)
 			if len(fields) != 3 {
 				fmt.Println("ERROR: invalid room format:", line)
-				os.Exit(1)
+				os.Exit(0)
 			}
 			name, xStr, yStr := fields[0], fields[1], fields[2]
 			x, err := strconv.Atoi(xStr)
 			if err != nil {
 				fmt.Println("ERROR: invalid x coordinate")
-				os.Exit(1)
+				os.Exit(0)
 			}
 			y, err := strconv.Atoi(yStr)
 			if err != nil {
 				fmt.Println("ERROR: invalid y coordinate")
-				os.Exit(1)
+				os.Exit(0)
 			}
-			if err := graph.AddRoom(name, x, y, start, end); err != nil {
-				fmt.Println("ERROR:", err)
-				os.Exit(1)
-			}
+			graph.AddRoom(name, x, y, start, end)
 			start, end = false, false
 		}
 	}
@@ -153,11 +143,6 @@ func readInput(exampleFile string) (*Graph, string, string, int) {
 		os.Exit(0)
 	}
 	return graph, graph.StartRoom, graph.EndRoom, graph.AntCount
-}
-
-// debugAntCount prints the number of ants.
-func debugAntCount(antCount int) {
-	fmt.Printf("Number of ants: %d\n", antCount)
 }
 
 // findAllPaths uses DFS to find all paths from the start room to the end room.
@@ -182,9 +167,10 @@ func findAllPaths(graph *Graph, currentRoom string, visited map[string]bool, pat
 	visited[currentRoom] = false
 }
 
+// findShortestPaths finds the shortest paths using BFS.
 func findShortestPaths(graph *Graph, start string) [][]string {
 	var allPaths [][]string
-	visited := make(map[string]bool) // Key:name of the room and if visited
+	visited := make(map[string]bool)
 	findAllPaths(graph, start, visited, []string{}, &allPaths)
 
 	// Sort paths by length (shortest first)
@@ -195,12 +181,12 @@ func findShortestPaths(graph *Graph, start string) [][]string {
 	return allPaths
 }
 
-func solutionsCompatible(path1, path2 []string, start, end string) bool {
-	for _, room1 := range path1 {
+func solutionsCompatible(sol1, sol2 []string, start, end string) bool {
+	for _, room1 := range sol1 {
 		if room1 == start || room1 == end {
 			continue
 		}
-		for _, room2 := range path2 {
+		for _, room2 := range sol2 {
 			if room1 == room2 {
 				return false
 			}
@@ -209,35 +195,33 @@ func solutionsCompatible(path1, path2 []string, start, end string) bool {
 	return true
 }
 
-// Checks if a given candidate path is compatible with all paths in group
 func solutionCompatibleWithGroup(candidate []string, group [][]string, start, end string) bool {
-	for _, path := range group {
-		if !solutionsCompatible(path, candidate, start, end) {
+	for _, sol := range group {
+		if !solutionsCompatible(sol, candidate, start, end) {
 			return false
 		}
 	}
 	return true
 }
 
-// Groups compatible solutions together.
-func calculateSolutionGroups(paths [][]string, start, end string) [][][]string {
+func calculateSolutionGroups(solutions [][]string, start, end string) [][][]string {
 	var solGroups [][][]string
 
-	if len(paths) <= 1 {
-		if len(paths) == 1 {
-			solGroups = append(solGroups, paths)
+	if len(solutions) <= 1 {
+		if len(solutions) == 1 {
+			solGroups = append(solGroups, solutions)
 		}
 		return solGroups
 	}
 
-	for i, path1 := range paths {
-		group := [][]string{path1}
-		for j, path2 := range paths {
+	for i, sol1 := range solutions {
+		group := [][]string{sol1}
+		for j, sol2 := range solutions {
 			if i == j {
 				continue
 			}
-			if solutionCompatibleWithGroup(path2, group, start, end) {
-				group = append(group, path2)
+			if solutionCompatibleWithGroup(sol2, group, start, end) {
+				group = append(group, sol2)
 			}
 		}
 		solGroups = append(solGroups, group)
@@ -267,6 +251,8 @@ func distributeAnts(paths [][]string, ants int) map[int][]string {
 		loads[minIndex]++
 	}
 
+	// fmt.Println("Assignment:", assignment)
+
 	return assignment
 }
 
@@ -293,33 +279,32 @@ func getAntMoves(originalAssignment map[int][]string, end string) string {
 	roomFull := make(map[string]bool)
 
 	for {
-		tunnelsUsed := make(map[string]string)
+		var tunnelsUsed = make(map[string]bool)
 		var moveStrings []string
 		finishedAnts := 0
 
 		// Process each ant's movement.
 		for i := range assignments {
 			currentPosition := antPositions[assignments[i].AntID]
-
 			if currentPosition < len(assignments[i].Path)-1 {
 				nextPosition := currentPosition + 1
 				currentRoom := assignments[i].Path[currentPosition]
 				nextRoom := assignments[i].Path[nextPosition]
-
-				if !roomFull[nextRoom] && tunnelsUsed[currentRoom] != nextRoom {
+				if !roomFull[nextRoom] && !tunnelsUsed[currentRoom+"->"+nextRoom] {
 					antPositions[assignments[i].AntID] = nextPosition
 					moveStrings = append(moveStrings, fmt.Sprintf("L%d-%s", assignments[i].AntID, nextRoom))
-
 					if nextRoom != end {
 						roomFull[nextRoom] = true
 					}
 					roomFull[assignments[i].Path[currentPosition]] = false
-					tunnelsUsed[currentRoom] = nextRoom
+					tunnelsUsed[currentRoom+"->"+nextRoom] = true
+					// fmt.Println("TunnelsUsed:", tunnelsUsed)
 				}
 			} else {
 				finishedAnts++
 			}
 		}
+		fmt.Println()
 
 		if len(moveStrings) > 0 {
 			antMoves += strings.Join(moveStrings, " ") + "\n"
@@ -337,29 +322,35 @@ func getAntMoves(originalAssignment map[int][]string, end string) string {
 func debugPaths(paths [][]string) {
 	fmt.Println("All paths found:")
 	for i, path := range paths {
-		fmt.Printf("Path %d: %s", i+1, strings.Join(path, " ->"))
-		fmt.Println()
+		fmt.Printf("Path %d: %s\n", i+1, strings.Join(path, " -> "))
 	}
+}
+
+// debugAntCount prints the number of ants.
+func debugAntCount(antCount int) {
+	fmt.Printf("Number of ants: %d\n", antCount)
 }
 
 // main is the entry point of the program.
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run . <filename.txt>")
+		fmt.Println("Usage: go run . <input_file>")
 		return
 	}
 
 	graph, start, end, ants := readInput(os.Args[1])
 
-	// Print all ants on file
+	// Debug: Print the number of ants
 	debugAntCount(ants)
 
+	// Step 2: Find Shortest Paths (BFS)
 	paths := findShortestPaths(graph, start)
 	if len(paths) == 0 {
 		fmt.Println("ERROR: No valid path found")
 		return
 	}
-	// Print all paths found
+
+	// Debug: Print all paths found
 	debugPaths(paths)
 
 	solutionGroups := calculateSolutionGroups(paths, start, end)
@@ -384,9 +375,6 @@ func main() {
 		}
 	}
 
-	steps := strings.Count(shortestSolution, "\n")
-	fmt.Println()
-	fmt.Println("Shortest path\n" + shortestSolution)
-	fmt.Println("Here you go!")
-	fmt.Println("Quickest path with", steps, "turns")
+	fmt.Println(shortestSolution)
+	fmt.Println("Program completed.")
 }
